@@ -1,3 +1,4 @@
+import struct
 import tkinter as tk
 from tkinter import filedialog
 import subprocess
@@ -7,11 +8,7 @@ import numpy as np
 import os
 
 file_path = ""
-inital_paramaters=[]
-finalkey_list=[]
-hex_values=[]
-Encrpyted_strings=[]
-Decrpyted_strings=[]
+
 
 s_box= [
     137, 140, 253, 68, 34, 133, 135, 175, 12, 35, 120, 119, 232, 74, 78, 233,
@@ -55,6 +52,7 @@ permutation_table = [20, 7, 36, 13, 23, 33, 3, 27, 17, 46, 9, 41, 44, 22, 12, 29
                      26, 8, 4, 11, 38, 45, 19, 2, 30, 21, 47, 34, 5, 10, 15, 6, 25, 24, 31, 37, 0,
                      42, 43, 35, 40, 28, 16, 39]
 
+entered_text=''
 
 def open_file_dialog():
     global file_path
@@ -63,23 +61,20 @@ def open_file_dialog():
         result_label.config(text=f"Selected Image: {file_path}")
 
 
+   
 
 # inital state generator 
-def image_to_sha256_bytes(image_file_path):
-    try:
-        # Open the image file in binary mode
-        with open(image_file_path, 'rb') as file:
-            # Read the image content
-            image_data = file.read()
-            # Create a SHA-256 hash object
-            sha256_hash = hashlib.sha256()
-            # Update the hash object with the image data
-            sha256_hash.update(image_data)
-            # Get the binary representation of the hash
-            hash_bytes = sha256_hash.digest()
-            return list(hash_bytes)
-    except FileNotFoundError:
-        return None
+
+def calculate_sha256_bytes(text):
+    # Encode the text string to bytes (UTF-8 encoding)
+    encoded_text = text.encode('utf-8')
+
+    # Compute the SHA-256 hash
+    sha256_hash = hashlib.sha256(encoded_text)
+
+    # Return the SHA-256 hash as bytes
+    return sha256_hash.digest()
+
 
 def normalized_value(x):
     final=0
@@ -90,18 +85,19 @@ def normalized_value(x):
         
 
 
-def initial_state_generator():
+def initial_state_generator(entered_text):
     initial_state_list = []
-
-    byte_list = image_to_sha256_bytes(file_path)
+    inital_paramaters =[]
+    byte_list = calculate_sha256_bytes(entered_text)
     if byte_list is None:
-        print("Failed to get byte list from image.")
+        print("Failed to get byte list from text.")
         return
 
     initial_state_list = [byte_list[0:11], byte_list[11:22], byte_list[22:32]]
     for i in initial_state_list:
         inital_paramaters.append(normalized_value(i))  # Assuming normalized_value function is defined elsewhere
 
+    return inital_paramaters
     print("Initial state is done....")
 
 
@@ -169,8 +165,8 @@ def keyfinal(t_values,sol):
     key=[x_val,y_val,z_val]
     return key
 
-def key_generation():
-    global finalkey_list
+def key_generation(inital_paramaters):
+    finalkey_list=[]
     # System parameters for Rossler system
     a_rossler, b_rossler, c_rossler = 0.2, 0.2, 5.7
 
@@ -209,11 +205,8 @@ def key_generation():
         sol=np.array([[np.float32(key1[0]),np.float32(key2[0]),np.float32(key3[0]),np.float32(key4[0])],[np.float32(key1[1]),np.float32(key2[1]),np.float32(key3[1]),np.float32(key4[1])],[np.float32(key1[2]),np.float32(key2[2]),np.float32(key3[2]),np.float32(key4[2])]])
         finalkey=sol.tobytes().hex()
         finalkey_list.append(finalkey)
-        
-        inital_paramaters.clear()   # clearing for next stage
-        image_to_blocks()
-    
-    
+
+    return finalkey_list
     print("key generation is done....")
     
 
@@ -221,7 +214,8 @@ def key_generation():
 
 # image to blocks
 
-def image_to_blocks():
+def image_to_blocks(file_path):
+    hex_values =[]
 
     image = Image.open(file_path)
     image = image.convert('RGB')
@@ -257,6 +251,8 @@ def image_to_blocks():
     # Append the last hex_string to hex_values
     hex_values.append(hex_string)
 
+    return hex_values
+
 
 
 #image encryption
@@ -264,9 +260,22 @@ def image_to_blocks():
 def substitute_bits(input_8bit, s_box):
         return s_box[input_8bit]
 
+def float_to_hex(float_numbers):
+    # Convert each float number to hexadecimal string
+    hex_string = ''.join(format(int(float_number * (1 << 32)), '08x') for float_number in float_numbers)
+    
+    return hex_string
+
 def image_encryption():
-    key_string = finalkey_list
-    result_hex=""
+    entered_text = entry.get()  # Get the text entered in the Entry widget
+    entry.delete(0, tk.END)
+    print("Entered text:", entered_text)
+    inital_paramaters = initial_state_generator(entered_text)
+    key_string = key_generation(inital_paramaters)
+    hex_values = image_to_blocks(file_path)
+    Encrpyted_strings=[]
+    
+    result_hex_string=""
 
     for data_string in hex_values:
         if len(data_string) != 96:
@@ -297,21 +306,20 @@ def image_encryption():
 
             substituted_384_bit = [substitute_bits(value, s_box) for value in permuted_384_bit]
 
-            byte = ''.join(format(x, '08b') for x in key_bytes)
-            s_384_bit = ''.join(format(x, '08b') for x in substituted_384_bit)
 
-            result = ""
-            
-            for k in range(len(byte)):
-                if (byte[k] == "0" and s_384_bit[k] == "0") or (byte[k] == "1" and s_384_bit[k] == "1"):
-                    result += "0"
-                else:
-                    result += "1"
+            key_bytes_array = np.frombuffer(bytes(key_bytes), dtype=np.uint8)
+            substituted_384_bit_array = np.frombuffer(bytes(substituted_384_bit), dtype=np.uint8)
 
-            result_hex = ''.join([hex(int(result[m:m+4], 2))[2:].upper() for m in range(0, len(result), 4)])
-            data_string = result_hex
+            optimized_result_array = np.bitwise_xor(key_bytes_array, substituted_384_bit_array)
+
+            # Convert back to bytes if needed
+            optimized_result = bytes(optimized_result_array)
+
+            # Convert the result to a hexadecimal string representation
+            result_hex_string = optimized_result.hex()
+            data_string = result_hex_string
             
-        Encrpyted_strings.append(result_hex)
+        Encrpyted_strings.append(result_hex_string)
 
 
     # Replace this with the path to your original image
@@ -330,12 +338,16 @@ def image_encryption():
     reconstructed_image = Image.new('RGB', (original_width, original_height))
 
     # Iterate through the hexadecimal values and reconstruct the image
+    
     pixel_data = []
+
     pixel_count = 0
+
+
 
     for hex_string in Encrpyted_strings:
         for i in range(0, len(hex_string), 6):  # Read six characters at a time
-            if pixel_count < original_width * original_height:
+            if pixel_count < (original_width * original_height):
                 hex_color = hex_string[i:i+6]
                 r = int(hex_color[0:2], 16)
                 g = int(hex_color[2:4], 16)
@@ -349,7 +361,7 @@ def image_encryption():
     # Display the reconstructed image
     reconstructed_image.show()
 
-    reconstructed_image.save(r"Encrpyted.jpg")
+    reconstructed_image.save(r"Encrpyted.png")
 
     hex_values.clear()
     print("image encryption is done....")
@@ -357,10 +369,20 @@ def image_encryption():
 
 # image decryption
 
+
+
+
+
 def inverse_substitute_bits(output_8bit, inverse_s_box):
     return inverse_s_box[output_8bit-1]
-def image_decryption():
 
+def image_decryption():
+    entered_text = entry.get()  # Get the text entered in the Entry widget
+    entry.delete(0, tk.END)
+    print("Entered text:", entered_text)
+    inital_paramaters = initial_state_generator(entered_text)
+    finalkey_list = key_generation(inital_paramaters)
+    Encrpyted_strings = image_to_blocks(file_path) 
     inverse_permutation_table = [0] * len(permutation_table)
 
     for index, value in enumerate(permutation_table):
@@ -448,11 +470,8 @@ def image_decryption():
     # Display the reconstructed image
     reconstructed_image.show()
 
-    reconstructed_image.save(r"Decrpyted.jpg")
+    reconstructed_image.save(r"Decrpyted.png")
 
-    Encrpyted_strings.clear()
-    Decrpyted_strings.clear()
-    finalkey_list.clear()
     print("image decryption is done....")
     
 
@@ -494,19 +513,37 @@ button_height = 2
 # Define button colors
 button_bg_color = "white"
 
+
 open_button = tk.Button(app, text="Select Image", command=open_file_dialog, font=button_font, width=button_width, height=button_height, bg=button_bg_color)
-initial_state_button = tk.Button(app, text="Initial State", command=initial_state_generator, font=button_font, width=button_width, height=button_height, bg=button_bg_color)
-key_generation_button = tk.Button(app, text="Key Generation", command=key_generation, font=button_font, width=button_width, height=button_height, bg=button_bg_color)
 image_encryption_button = tk.Button(app, text="Image Encryption", command=image_encryption, font=button_font, width=button_width, height=button_height, bg=button_bg_color)
 image_decryption_button = tk.Button(app, text="Image Decryption", command=image_decryption, font=button_font, width=button_width, height=button_height, bg=button_bg_color)
+
+title_label = tk.Label(app, text="Enter your Secret key",justify="center",background=button_bg_color,font=button_font,width=button_width,height= button_height)
+title_label.pack()
+
+entry = tk.Entry(app, width=30)
+entry.pack()
+
+# Set placeholder text
+entry.insert(0, "Enter your Secret key")
+
+# Function to clear placeholder text when entry is clicked
+def on_entry_click(event):
+    if entry.get() == "Enter your Secret key":
+        entry.delete(0, tk.END)  # Delete all the text in the entry
+        entry.config(fg='black')  # Set text color to black
+
+# Bind click event to entry
+entry.bind('<FocusIn>', on_entry_click)
+
+
 
 
 # Pack buttons to the GUI
 open_button.pack(pady=10)
-initial_state_button.pack(pady=10)
-key_generation_button.pack(pady=10)
 image_encryption_button.pack(pady=10)
 image_decryption_button.pack(pady=10)
+
 
 # Start the main event loop
 app.mainloop()
