@@ -1,0 +1,2 @@
+7,7181YZAB,Transmission Model A,25,Manufacturer G,120,Category G,2023-07-15,36,Manual,6,350,Pattern A
+8,9201CDEF,Transmission Model B,10,Manufacturer H,130,Category H,2023-08-20,48,Automatic,8,400,Pattern B
